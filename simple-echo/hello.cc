@@ -70,8 +70,11 @@ main(int argc, char **argv)
 
     // read a line from standard input
     string line;
-    while (getline(cin,line)) {
+    int count = 0;
+    while (count < 10) {
 
+        line = "hefo\n";
+        cout << line;
         // write the data to the server
         send(server, line.c_str(), line.length(), 0);
 
@@ -81,6 +84,7 @@ main(int argc, char **argv)
         
         // print the response
         cout << buf << endl;
+        count++;
     }
 
     // Close socket

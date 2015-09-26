@@ -2,27 +2,27 @@
 
 CXX=			g++ $(CCFLAGS)
 
-ECHO-SERVER=		echo-server.o server.o
-ECHO-CLIENT=		echo-client.o client.o
-OBJS =			$(ECHO-SERVER) $(ECHO-CLIENT)
+MSGD=		msgd.o server.o message.o
+MSG=		msg.o client.o message.o
+OBJS =			$(MSGD) $(MSG)
 
 LIBS=
 
-CCFLAGS= -g
+CCFLAGS= -g -std=c++11
 
-all:	echo-server echo-client
+all:	msgd msg
 
-echo-server:$(ECHO-SERVER)
-	$(CXX) -o server $(ECHO-SERVER) $(LIBS)
+msgd:$(MSGD)
+	$(CXX) -o msgd $(MSGD) $(LIBS)
 
-echo-client:$(ECHO-CLIENT)
-	$(CXX) -o client $(ECHO-CLIENT) $(LIBS)
+msg:$(MSG)
+	$(CXX) -o msg $(MSG) $(LIBS)
 
 clean:
 	rm -f $(OBJS) $(OBJS:.o=.d)
 
 realclean:
-	rm -f $(OBJS) $(OBJS:.o=.d) server client
+	rm -f $(OBJS) $(OBJS:.o=.d) msgd msg
 
 
 # These lines ensure that dependencies are handled automatically.

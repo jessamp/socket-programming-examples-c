@@ -12,6 +12,9 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <sstream>
+
+#include "message.h"
 
 using namespace std;
 
@@ -27,11 +30,16 @@ private:
     virtual void close_socket();
     void echo();
     bool send_request(string);
-    bool get_response();
+    string get_response();
+    void get_value(int, Message &);
+    Message parse_response(string);
+    bool handle_response(Message);
 
     string host_;
     int port_;
     int server_;
     int buflen_;
     char* buf_;
+
+    string cache_;
 };

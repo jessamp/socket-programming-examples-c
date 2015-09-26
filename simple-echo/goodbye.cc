@@ -10,8 +10,7 @@
 
 using namespace std;
 
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
     struct sockaddr_in server_addr,client_addr;
     socklen_t clientlen = sizeof(client_addr);
@@ -83,11 +82,19 @@ main(int argc, char **argv)
               // read a request
             memset(buf,0,buflen);
             nread = recv(client,buf,buflen,0);
+
             if (nread == 0)
                 break;
 
+            string request(buf);
+            string response;
+            if(request[request.size()-1] == '\n' && request == "hello\n")
+                response = "goodbye\n";
+            else
+                response = "error\n";
+
             // send a response
-            send(client, buf, nread, 0);
+            send(client, response.c_str(), response.length(), 0);
         }
         close(client);
     }

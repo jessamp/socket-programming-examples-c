@@ -1,31 +1,31 @@
 # Makefile for simple echo client and server
 
 CXX=		g++ $(CCFLAGS)
-SERVER=		server.o
-CLIENT=		client.o
-SLOW-SERVER=	slow-server.o
-OBJS =		$(SERVER) $(CLIENT) $(SLOW-SERVER)
+GOODBYE=		goodbye.o
+HELLO=		hello.o
+SLOW-GOODBYE=	slow-server.o
+OBJS =		$(GOODBYE) $(HELLO) $(SLOW-GOODBYE)
 
 LIBS=
 
 CCFLAGS= -g
 
-all:	server client slow-server
+all:	goodbye hello slow-server
 
-server: $(SERVER)
-	$(CXX) -o server $(SERVER) $(LIBS)
+goodbye: $(GOODBYE)
+	$(CXX) -o goodbye $(GOODBYE) $(LIBS)
 
-client: $(CLIENT)
-	$(CXX) -o client $(CLIENT) $(LIBS)
+hello: $(HELLO)
+	$(CXX) -o hello $(HELLO) $(LIBS)
 
-slow-server: $(SLOW-SERVER)
-	$(CXX) -o slow-server $(SLOW-SERVER) $(LIBS)
+slow-server: $(SLOW-GOODBYE)
+	$(CXX) -o slow-server $(SLOW-GOODBYE) $(LIBS)
 
 clean:
 	rm -f $(OBJS) $(OBJS:.o=.d)
 
 realclean:
-	rm -f $(OBJS) $(OBJS:.o=.d) server client slow-server
+	rm -f $(OBJS) $(OBJS:.o=.d) goodbye hello slow-server
 
 
 # These lines ensure that dependencies are handled automatically.

@@ -1,10 +1,12 @@
 #include "server.h"
 
-Server::Server(int port) {
+Server::Server(int port, bool debugFlag) {
     // setup variables
     port_ = port;
+    debugFlag_ = debugFlag;
     buflen_ = 1024;
     buf_ = new char[buflen_+1];
+    cache_= "";
 }
 
 Server::~Server() {
@@ -70,10 +72,130 @@ Server::serve() {
 
       // accept clients
     while ((client = accept(server_,(struct sockaddr *)&client_addr,&clientlen)) > 0) {
-
         handle(client);
     }
     close_socket();
+}
+
+Message
+Server::parse_request(string request) {
+    Message message;  
+    stringstream requestParams(request);
+    string command, name;
+    requestParams >> command >> name;
+    message.command = command;
+    message.name = name;
+
+    if(command == "put") {
+        string length;
+        string subject, value;
+        requestParams >> subject >> length >> value;
+        message.subject = subject;
+        message.value = value;
+        if(length != "")
+            message.length = atoi(length.c_str());
+        else
+            message.length = -1;
+        
+        if(message.length > 0)
+            message.needed = true;
+        else
+            message.needed = false;
+    }
+    
+    if(command == "get") {
+        string index;
+        requestParams >> index;
+        message.index = atoi(index.c_str());
+    }
+    return message;
+}
+
+void
+Server::get_value(int client, Message &message) {
+    int messageLength = message.length;
+    int currentSize = cache_.size();
+    // read until we get a newline
+    while (currentSize < messageLength) {
+        int amountLeft = messageLength-currentSize;
+        if(amountLeft > 1024)
+            amountLeft = 1024;
+        int nread = recv(client,buf_,amountLeft,0);
+        if(debugFlag_)
+            cout << "in get request loop after recieve: " << buf_ << endl;
+        if (nread < 0) {
+            if (errno == EINTR)
+                // the socket call was interrupted -- try again
+                continue;
+            else
+                // an error occurred, so break out
+                return;
+        } else if (nread == 0) {
+            // the socket is closed
+            return;
+        }
+        // be sure to use append in case we have binary data
+        cache_.append(buf_,nread);
+        currentSize = cache_.size();
+    }
+    message.value = cache_;
+    cache_ = "";
+}
+
+bool
+Server::handle_message(int client, Message message) {
+    string response = "";
+    if(message.command == "put") {
+        if(message.name != "" && message.subject != "" && message.length != -1) {
+            if(message.length == message.value.size()) {
+                messages_.push_back(message);
+                response = "OK\n";
+            }
+            else
+                response = "error message not saved correctly\n";
+        }
+        else
+            response = "error invalid message\n";
+    }
+
+    if(message.command == "list" && message.name != "") {
+        int index = 0;
+        for(int i = 0; i < messages_.size(); i++) {
+            Message m = messages_[i];
+            if(m.name == message.name) {
+                index++;
+                response += to_string(index) + " " + m.subject + '\n';
+            }
+        }
+        response = "list " + to_string(index) + '\n' + response;
+    }
+
+    if(message.command == "get" && message.name != "" && message.index != 0) {
+        int index = 0;
+        for(int i = 0; i < messages_.size(); i++) {
+            Message m = messages_[i];
+            if(m.name == message.name) {
+                index++;
+                if(index == message.index) {
+                    response += "message " + m.subject + " " + to_string(m.length) + '\n' + m.value;
+                    break;
+                }
+            }
+        }
+        if(response == "")
+            response = "error no such message for that user\n";
+    }
+    
+    if(message.command == "reset") {
+        messages_.clear();
+        response = "OK\n";
+    }
+    //message didn't have recognized command
+    if(response == "")
+        response = "error I don't recognize that command.\n";
+
+    bool success = send_response(client, response);
+    return success;
 }
 
 void
@@ -85,8 +207,15 @@ Server::handle(int client) {
         // break if client is done or an error occurred
         if (request.empty())
             break;
+        //parse request
+        Message message = parse_request(request);
+
+        //get more characters if needed
+        if (message.needed)
+            get_value(client, message);
+
         // send response
-        bool success = send_response(client,request);
+        bool success = handle_message(client,message);
         // break if an error occurred
         if (not success)
             break;
@@ -96,10 +225,12 @@ Server::handle(int client) {
 
 string
 Server::get_request(int client) {
-    string request = "";
+    string request = cache_;
     // read until we get a newline
     while (request.find("\n") == string::npos) {
         int nread = recv(client,buf_,1024,0);
+        if(debugFlag_)
+            cout << "in get request loop after recieve: " << buf_ << endl;
         if (nread < 0) {
             if (errno == EINTR)
                 // the socket call was interrupted -- try again
@@ -116,6 +247,8 @@ Server::get_request(int client) {
     }
     // a better server would cut off anything after the newline and
     // save it in a cache
+    size_t found = request.find("\n");
+    cache_ = request.substr(found+1);
     return request;
 }
 
@@ -140,6 +273,8 @@ Server::send_response(int client, string response) {
             // the socket is closed
             return false;
         }
+        if(debugFlag_)
+            cout << "what we're sending: " << ptr << endl;
         nleft -= nwritten;
         ptr += nwritten;
     }

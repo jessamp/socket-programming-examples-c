@@ -59,19 +59,65 @@ Client::echo() {
     string line;
     
     // loop to handle user interface
+
+    cout << "% ";
     while (getline(cin,line)) {
         // append a newline
         line += "\n";
+
+        stringstream request(line);
+        string command;
+        request >> command;
+
+        if (command == "send") {
+            string name, subject, message;
+            request >> name >> subject;
+
+            if(name != "" && subject != "") {
+                cout << "- Type your message. End with a blank line -" << endl;
+                string currentLine;
+                while (getline(cin, currentLine)) {
+                    if(currentLine != "")
+                        message += currentLine + '\n';
+                    else
+                        break;
+                }
+                //remove newline at the end of message
+                if (message != "")
+                    message.pop_back();
+                else
+                    message = "";
+                
+                stringstream reformat_request;
+                reformat_request << "put " << name << " " << subject << " " << message.length() << "\n" << message;
+                line = reformat_request.str();
+            }
+        }
+        else if (command == "read") {
+            line.erase(line.begin(), line.begin()+4);
+            line = "get" + line;
+        }
+        else if (command == "quit")
+            break;
+
         // send request
+        //cout << "Client: before request: " << line;
         bool success = send_request(line);
         // break if an error occurred
         if (not success)
             break;
         // get a response
-        success = get_response();
+        string response = get_response();
+        //parse request
+        Message message = parse_response(response);
+        if (message.needed)
+            get_value(server_,message);
+        //do something
+        success = handle_response(message);
         // break if an error occurred
         if (not success)
             break;
+        cout << "% ";
     }
     close_socket();
 }
@@ -103,7 +149,96 @@ Client::send_request(string request) {
     return true;
 }
 
+Message
+Client::parse_response(string response) {
+    Message message;
+    stringstream responseParams(response);
+    string command;
+    responseParams >> command;
+    message.command = command;
+
+    if(command == "message") {
+        int length;
+        string subject, value;
+        responseParams >> subject >> length >> value;
+        message.subject = subject;
+        message.length = length;
+        message.value = value;
+        
+        if(length > 0)
+            message.needed = true;
+        else
+            message.needed = false;
+    }
+    
+    else if(command == "list") {
+        int index;
+        string list;
+        responseParams >> index >> list;
+        message.index = index;
+        message.value = list;
+
+        if(index > 0)
+            message.needed = true;
+        else
+            message.needed = false;
+    }
+
+    else if(command == "error") {
+        message.value = response.erase(0, command.size()+1);
+    }
+    else
+        message.value = response;
+    return message;
+}
+
+void
+Client::get_value(int server, Message &message) {
+    int messageLength = message.length;
+    int currentSize = cache_.size();
+    // read until we get a newline
+    while (currentSize < messageLength) {
+        int amountLeft = messageLength-currentSize;
+        if(amountLeft > 1024)
+            amountLeft = 1024;
+        //cout << "in get response loop before recieve: " << buf_ << endl;
+        int nread = recv(server,buf_,amountLeft,0);
+        //cout << "in get response loop after: " << buf_ << endl;
+        if (nread < 0) {
+            if (errno == EINTR)
+                // the socket call was interrupted -- try again
+                continue;
+            else
+                // an error occurred, so break out
+                return;
+        } else if (nread == 0) {
+            // the socket is closed
+            return;
+        }
+        // be sure to use append in case we have binary data
+        cache_.append(buf_,nread);
+        currentSize = cache_.size();
+    }
+    message.value = cache_;
+    cache_ = "";
+}
+
 bool
+Client::handle_response(Message message) {
+    if(message.command == "message")
+        cout << message.subject << endl << message.value << endl;
+    else if(message.command == "list")
+        cout << message.value;
+    else if(message.command == "error") {
+        if(message.value[0] == 'I')
+            cout << message.value;
+        else
+            cout << "Server error: " << message.value;
+    }
+    return true;
+}
+
+string
 Client::get_response() {
     string response = "";
     // read until we get a newline
@@ -125,6 +260,7 @@ Client::get_response() {
     }
     // a better client would cut off anything after the newline and
     // save it in a cache
-    cout << response;
-    return true;
+    size_t found = response.find("\n");
+    cache_ = response.substr(found+1);
+    return response;
 }
