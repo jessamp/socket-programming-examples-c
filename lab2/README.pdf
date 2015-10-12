@@ -1,0 +1,153 @@
+I used semaphores throughout this program. I synchronized my code by making my ClientQueue class and ClientHandler thread-safe.
+
+The ClientHandler class stores a client socket and deals with the requests and responses. In this class, I create a messageLock semaphore that protects the shared messages. The messages need to be locked because we don't want multiple clients trying to access the messages at the same time. The shared messages are held in a vector. Whenever I read/write to the vector, I would lock the semaphore. Once I was done accessing the data, I would unlock it.
+
+bool
+ClientHandler::handle_message(Message message, vector<Message>* messages) {
+    string response = "";
+    if(message.command == "put") {
+        sem_wait(messageLock);
+        if(message.name != "" && message.subject != "" && message.length != -1) {
+            if(message.length == message.value.size()) {
+                messages->push_back(message);
+                response = "OK\n";
+            }
+            else
+                response = "error message not saved correctly\n";
+        }
+        else
+            response = "error invalid message\n";
+
+        sem_post(messageLock);
+    }
+
+    if(message.command == "list" && message.name != "") {
+        sem_wait(messageLock);
+        int index = 0;
+        for(int i = 0; i < messages->size(); i++) {
+            Message m = (*messages)[i];
+            if(m.name == message.name) {
+                index++;
+                response += to_string(index) + " " + m.subject + '\n';
+            }
+        }
+        response = "list " + to_string(index) + '\n' + response;
+        if(debugFlag_)
+            cout << "in handle message in list...response: " << response << endl;    
+        sem_post(messageLock);
+    }
+
+    if(message.command == "get" && message.name != "" && message.index != 0) {
+        sem_wait(messageLock);
+        int index = 0;
+        for(int i = 0; i < messages->size(); i++) {
+            Message m = (*messages)[i];
+            if(m.name == message.name) {
+                index++;
+                if(index == message.index) {
+                    response += "message " + m.subject + " " + to_string(m.length) + '\n' + m.value;
+                    break;
+                }
+            }
+        }
+        if(response == "")
+            response = "error no such message for that user\n";
+        sem_post(messageLock);
+    }
+    
+    if(message.command == "reset") {
+        sem_wait(messageLock);
+        messages->clear();
+        sem_post(messageLock);
+
+        response = "OK\n";
+    }
+    //message didn't have recognized command
+    if(response == "")
+        response = "error I don't recognize that command.\n";
+
+    bool success = send_response(response);
+    return success;
+}
+
+
+The ClientQueue class holds a queue of ClientHandlers. Because the queue also needs to access the shared data, due to the ClientHandlers, I created a queueLock semaphore here. We don't want to have multiple threads trying to access the same client socket and process the requests out of order. Therefore, whenever I pushed or popped from the queue, I would lock and then unlock the semaphore. 
+
+ClientHandler
+ClientQueue::pop() {
+	sem_wait(&queueLock);
+	ClientHandler ch = clients_.front();
+	//cout << "before pop, size = " << clients_.size() << endl;
+	clients_.pop();
+	//cout << "popped" << endl;
+	sem_post(&queueLock);
+	return ch;
+}
+
+void
+ClientQueue::push(ClientHandler ch) {
+	sem_wait(&queueLock);
+	clients_.push(ch);
+	//cout << "pushed" << endl;
+	sem_post(&queueLock);
+}
+
+Lastly, I created counting semaphores in my Server class that kept track of the number of spaces and the number of clients on my queue. Whenever I needed to push I would wait until I had enough space on my queue. Then I would post, increment, the sempahore that kept track of the number of clients. When I needed to pop from the queue, I would wait to make sure I had clients in the queue, to prevent erros; so I would wait on the semaphore that kept track of the number of clients. After I popped, I would then incrememnt semaphore that kept track of the number of spaces on my queue.
+
+void* handle(void* ptr) {
+    Server* server;
+    server = (Server*) ptr;
+    ClientQueue* queue = server->get_queue();
+
+    while(1) {
+        //cout << "before wait on numClients" << endl;
+        sem_wait(&server->numClients);
+        //cout << "after wait on numClients" << endl;
+        ClientHandler handler = queue->pop();
+        //cout << "after popped, before post numSpaces" << endl;
+        sem_post(&server->numSpaces);
+        //cout << "after post numSpaces" << endl;
+
+        //cout << "after pop in handle" << endl;
+        bool isClosed = handler.handle(server->get_messages());
+        //cout << "after handle called on handler, isCLosed: " << isClosed << endl;
+        
+        if(!isClosed) {
+            //cout << "before wait numSpaces" << endl;
+            sem_wait(&server->numSpaces);
+            //cout << "after wait numSpaces, before push" << endl;
+            queue->push(handler);
+            //cout << "after push, before post numClients" << endl;
+            sem_post(&server->numClients);
+            //cout << "pushed" << endl;
+        }
+    }
+    //delete server;
+    
+    pthread_exit(0);
+}
+
+void
+Server::serve() {
+    // setup client
+    int client;
+    struct sockaddr_in client_addr;
+    socklen_t clientlen = sizeof(client_addr);
+
+    initialize_thread_pool();
+      // accept clients
+    while ((client = accept(server_,(struct sockaddr *)&client_addr,&clientlen)) > 0) {
+        //cout << "before push" << endl;
+        sem_wait(&numSpaces);
+        queue_->push(ClientHandler(client, debugFlag_, &messageLock));
+        sem_post(&numClients);
+    }
+
+    // wait for threads to terminate.
+    for (int i=0; i<10; i++) {
+        pthread_join(*threads_[i], NULL);
+        delete threads_[i];
+    }
+
+    close_socket();
+}
